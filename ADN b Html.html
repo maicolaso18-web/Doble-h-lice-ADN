@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Doble hélice ADN B — animada e interactiva</title>
+<script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 0;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: #ffffff; color: #222; }
+  header { padding: 14px 24px 8px; border-bottom: 1px solid #e6e6ee; }
+  header h1 { margin: 0; font-size: 20px; }
+  header p  { margin: 4px 0 0; font-size: 13px; color: #666; }
+  #plot { width: 100vw; height: 58vh; min-height: 380px; }
+  #panel { padding: 14px 24px 20px; background: #f7f7fb;
+           border-top: 1px solid #e6e6ee; }
+  .fila { display: flex; align-items: center; gap: 14px;
+          margin: 10px 0; max-width: 900px; }
+  .fila label { width: 200px; font-size: 14px; font-weight: 500; }
+  .fila input[type=range] { flex: 1; max-width: 480px; accent-color: #1f77b4; }
+  .fila .val { width: 100px; font-family: ui-monospace, Consolas, monospace;
+               font-size: 14px; text-align: right; color: #1f77b4; }
+  .botones { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+  .botones button {
+    padding: 9px 18px; border: none; border-radius: 8px;
+    font-size: 14px; font-weight: 600; cursor: pointer;
+    background: #1f77b4; color: white; transition: background 0.15s;
+  }
+  .botones button:hover { background: #155a8a; }
+  .botones button.sec { background: #e6e6ee; color: #333; }
+  .botones button.sec:hover { background: #d0d0da; }
+  .botones button.toggle-on  { background: #2ca02c; }
+  .botones button.toggle-off { background: #e6e6ee; color: #333; }
+  #info { margin-top: 10px; font-size: 12px; color: #666;
+          font-family: ui-monospace, Consolas, monospace; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🧬 Doble hélice ADN B — animada e interactiva</h1>
+  <p>Gira sola · Sliders en vivo · Flecha del pitch · Alterna pares de bases · Leyenda A-T / G-C</p>
+</header>
+
+<div id="plot"></div>
+
+<div id="panel">
+  <div class="fila">
+    <label for="R">Radio (nm)</label>
+    <input id="R" type="range" min="0.5" max="1.5" step="0.05" value="1.0">
+    <span class="val" id="R_v">1.00 nm</span>
+  </div>
+  <div class="fila">
+    <label for="P">Pitch (nm)</label>
+    <input id="P" type="range" min="2.0" max="5.0" step="0.05" value="3.57">
+    <span class="val" id="P_v">3.57 nm</span>
+  </div>
+  <div class="fila">
+    <label for="Npb">Pares por vuelta</label>
+    <input id="Npb" type="range" min="8" max="13" step="0.1" value="10.5">
+    <span class="val" id="Npb_v">10.50</span>
+  </div>
+  <div class="fila">
+    <label for="n">N° total de pares</label>
+    <input id="n" type="range" min="7" max="30" step="1" value="21">
+    <span class="val" id="n_v">21</span>
+  </div>
+
+  <div class="botones">
+    <button id="toggleGiro">⏸ Pausar rotación</button>
+    <button id="togglePares" class="toggle-on">🧬 Ocultar pares</button>
+    <button id="reset" class="sec">↺ Reset (ADN B)</button>
+  </div>
+  <div id="info"></div>
+</div>
+
+<script>
+/* ============================================================
+   COLORES Y GEOMETRÍA
+   ============================================================ */
+const COLOR_AT = '#2ca02c';   // verde
+const COLOR_GC = '#ff7f0e';   // naranja
+
+function generar(R, P, Npb, n) {
+  const dphi = 2*Math.PI/Npb, phiMax = n*dphi, N = 600, k = P/(2*Math.PI);
+  const phi = []; for (let i=0;i<N;i++) phi.push(phiMax*i/(N-1));
+
+  const x1 = phi.map(p=> R*Math.cos(p));
+  const y1 = phi.map(p=> R*Math.sin(p));
+  const x2 = phi.map(p=> R*Math.cos(p+Math.PI));
+  const y2 = phi.map(p=> R*Math.sin(p+Math.PI));
+  const z  = phi.map(p=> k*p);
+
+  const xa=[],ya=[],xb=[],yb=[],zpb=[];
+  for (let i=0;i<n;i++){
+    const p=i*dphi;
+    xa.push(R*Math.cos(p));        ya.push(R*Math.sin(p));
+    xb.push(R*Math.cos(p+Math.PI));yb.push(R*Math.sin(p+Math.PI));
+    zpb.push(k*p);
+  }
+  return {x1,y1,x2,y2,z,xa,ya,xb,yb,zpb,k,P,Npb};
+}
+
+/* ============================================================
+   FLECHA DEL PITCH (llave vertical al lado de la hélice)
+   ============================================================ */
+function trazaPitch(d) {
+  const xLlave = 1.55;              // fuera del radio máximo (1.5)
+  const yLlave = 0.0;
+  const z0 = 0;
+  const z1 = d.P;                   // una vuelta = pitch
+
+  const vástago = {
+    type:'scatter3d', mode:'lines',
+    x:[xLlave, xLlave], y:[yLlave, yLlave], z:[z0, z1],
+    line:{color:'#555', width:5},
+    name:'Pitch', showlegend:false, hoverinfo:'skip'
+  };
+  const tapas = {
+    type:'scatter3d', mode:'lines',
+    x:[xLlave-0.15, xLlave+0.15, null, xLlave-0.15, xLlave+0.15],
+    y:[yLlave, yLlave, null, yLlave, yLlave],
+    z:[z0, z0, null, z1, z1],
+    line:{color:'#555', width:4},
+    name:'Pitch', showlegend:false, hoverinfo:'skip'
+  };
+  const etiqueta = {
+    type:'scatter3d', mode:'text',
+    x:[xLlave + 0.35], y:[yLlave], z:[(z0+z1)/2],
+    text:[`pitch = ${d.P.toFixed(2)} nm`],
+    textfont:{size:14, color:'#333', family:'system-ui, sans-serif'},
+    name:'Pitch', showlegend:false, hoverinfo:'skip'
+  };
+  return [vástago, tapas, etiqueta];
+}
+
+/* ============================================================
+   TRAZAS PRINCIPALES
+   ============================================================ */
+let MOSTRAR_PARES = true;
+
+function trazas(d, n) {
+  const t = [
+    {type:'scatter3d',x:d.x1,y:d.y1,z:d.z,mode:'lines',
+     line:{color:'#1f77b4',width:7},name:"Hebra 1",
+     hovertemplate:'Hebra 1<br>x=%{x:.2f} y=%{y:.2f} z=%{z:.2f} nm<extra></extra>'},
+    {type:'scatter3d',x:d.x2,y:d.y2,z:d.z,mode:'lines',
+     line:{color:'#d62728',width:7},name:"Hebra 2",
+     hovertemplate:'Hebra 2<br>x=%{x:.2f} y=%{y:.2f} z=%{z:.2f} nm<extra></extra>'}
+  ];
+
+  if (MOSTRAR_PARES) {
+    for (let i=0;i<n;i++){
+      const esAT = (i % 2 === 0);
+      t.push({
+        type:'scatter3d',
+        x:[d.xa[i],d.xb[i]], y:[d.ya[i],d.yb[i]], z:[d.zpb[i],d.zpb[i]],
+        mode:'lines',
+        line:{color: esAT ? COLOR_AT : COLOR_GC, width:5},
+        name: esAT ? 'Par A-T' : 'Par G-C',
+        legendgroup: esAT ? 'AT' : 'GC',
+        showlegend: (i < 2),
+        hovertemplate: (esAT ? 'A-T' : 'G-C') + ' · par ' + (i+1) +
+                       '<br>z=' + d.zpb[i].toFixed(2) + ' nm<extra></extra>'
+      });
+    }
+  }
+
+  trazaPitch(d).forEach(x => t.push(x));
+  return t;
+}
+
+/* ============================================================
+   LEYENDA PERSONALIZADA (A-T y G-C siempre visibles)
+   ============================================================ */
+function entradasLeyenda() {
+  return [
+    {type:'scatter3d', x:[null], y:[null], z:[null], mode:'lines',
+     line:{color:COLOR_AT, width:6}, name:'Par A-T', legendgroup:'AT',
+     showlegend:true, hoverinfo:'skip'},
+    {type:'scatter3d', x:[null], y:[null], z:[null], mode:'lines',
+     line:{color:COLOR_GC, width:6}, name:'Par G-C', legendgroup:'GC',
+     showlegend:true, hoverinfo:'skip'}
+  ];
+}
+
+/* ============================================================
+   LAYOUT
+   ============================================================ */
+function layout(zmax, cam) {
+  return {
+    title:{text:'<b>Doble hélice ADN B</b>',x:0.5,font:{size:16}},
+    scene:{
+      xaxis:{title:'x (nm)',range:[-1.9,1.9]},
+      yaxis:{title:'y (nm)',range:[-1.9,1.9]},
+      zaxis:{title:'z (nm)'},
+      aspectmode:'manual',
+      aspectratio:{x:1,y:1,z:Math.max(0.7,zmax/2.6)},
+      camera:cam||{eye:{x:1.8,y:1.8,z:0.8}},
+      bgcolor:'rgb(248,248,252)'
+    },
+    margin:{l:0,r:0,t:40,b:0},
+    paper_bgcolor:'white',
+    legend:{x:0.02,y:0.98,bgcolor:'rgba(255,255,255,0.9)',
+            bordercolor:'#ccc',borderwidth:1,
+            title:{text:'<b>Leyenda</b>', font:{size:12}}}
+  };
+}
+
+/* ============================================================
+   ESTADO Y RENDER
+   ============================================================ */
+let gd=null, animando=true, ultimoTs=null, angulo=0;
+const VELOCIDAD = 0.6;
+let radioCam  = Math.sqrt(1.8*1.8+1.8*1.8);
+let alturaCam = 0.8;
+
+function dibujar() {
+  const R   = +document.getElementById('R').value;
+  const P   = +document.getElementById('P').value;
+  const Npb = +document.getElementById('Npb').value;
+  const n   = +document.getElementById('n').value;
+
+  document.getElementById('R_v').textContent   = R.toFixed(2)+' nm';
+  document.getElementById('P_v').textContent   = P.toFixed(2)+' nm';
+  document.getElementById('Npb_v').textContent = Npb.toFixed(2);
+  document.getElementById('n_v').textContent   = n;
+
+  const d = generar(R,P,Npb,n);
+  const zmax = d.z[d.z.length-1];
+  const twist = (360/Npb).toFixed(2);
+  document.getElementById('info').textContent =
+    `Vuelta completa cada ${Npb} pb · twist = ${twist}° por par · ` +
+    `longitud = ${zmax.toFixed(2)} nm · diámetro = ${(2*R).toFixed(2)} nm · ` +
+    `pitch = ${P.toFixed(2)} nm`;
+
+  const cam = (gd && gd._fullLayout && gd._fullLayout.scene) ? gd._fullLayout.scene.camera : null;
+
+  const data = trazas(d, n).concat(entradasLeyenda());
+
+  Plotly.react('plot', data, layout(zmax, cam)).then(g=>{
+    gd = g;
+    if (cam && cam.eye) {
+      const e = cam.eye, rh = Math.sqrt(e.x*e.x+e.y*e.y);
+      if (rh > 0.1) { radioCam=rh; alturaCam=e.z; angulo=Math.atan2(e.y,e.x); }
+    }
+  });
+}
+
+/* ============================================================
+   ROTACIÓN AUTOMÁTICA
+   ============================================================ */
+function loopRotacion(ts) {
+  if (ultimoTs===null) ultimoTs=ts;
+  const dt = Math.min((ts-ultimoTs)/1000, 0.1);
+  ultimoTs = ts;
+  if (animando && gd) {
+    angulo += VELOCIDAD*dt;
+    Plotly.relayout('plot',{'scene.camera.eye':{
+      x: radioCam*Math.cos(angulo),
+      y: radioCam*Math.sin(angulo),
+      z: alturaCam
+    }});
+  }
+  requestAnimationFrame(loopRotacion);
+}
+
+/* ============================================================
+   CONTROLES
+   ============================================================ */
+document.getElementById('toggleGiro').addEventListener('click',()=>{
+  animando = !animando;
+  document.getElementById('toggleGiro').textContent =
+    animando ? '⏸ Pausar rotación' : '▶ Reanudar rotación';
+});
+
+document.getElementById('togglePares').addEventListener('click',(e)=>{
+  MOSTRAR_PARES = !MOSTRAR_PARES;
+  e.target.textContent = MOSTRAR_PARES ? '🧬 Ocultar pares' : '🧬 Mostrar pares';
+  e.target.className   = MOSTRAR_PARES ? 'toggle-on' : 'toggle-off';
+  dibujar();
+});
+
+document.getElementById('reset').addEventListener('click',()=>{
+  document.getElementById('R').value   = 1.0;
+  document.getElementById('P').value   = 3.57;
+  document.getElementById('Npb').value = 10.5;
+  document.getElementById('n').value   = 21;
+  angulo=0; radioCam=Math.sqrt(1.8*1.8+1.8*1.8); alturaCam=0.8; animando=true;
+  MOSTRAR_PARES = true;
+  document.getElementById('toggleGiro').textContent = '⏸ Pausar rotación';
+  const tp = document.getElementById('togglePares');
+  tp.textContent = '🧬 Ocultar pares'; tp.className = 'toggle-on';
+  dibujar();
+  Plotly.relayout('plot',{'scene.camera.eye':{x:1.8,y:1.8,z:0.8}});
+});
+
+['R','P','Npb','n'].forEach(id =>
+  document.getElementById(id).addEventListener('input', dibujar));
+
+dibujar();
+requestAnimationFrame(loopRotacion);
+</script>
+</body>
+</html>
